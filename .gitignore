@@ -1,0 +1,11 @@
+# segredos (gerados por scripts/gen_secrets.py)
+.env
+infra/rabbitmq/definitions.json
+secrets/
+
+__pycache__/
+*.pyc
+.venv/
+venv/
+frontend/node_modules/
+frontend/dist/

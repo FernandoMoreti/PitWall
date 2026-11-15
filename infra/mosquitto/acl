@@ -1,0 +1,20 @@
+# Permissões por tópico — cada cliente só faz o que precisa.
+
+# Simulador (o "carro"): publica telemetria/eventos, recebe comandos
+user sim
+topic write f1/+/telemetry
+topic write f1/+/event
+topic readwrite f1/sim/status
+topic read f1/+/cmd
+
+# Gateway: lê tudo que vem dos carros e publica os comandos
+user gateway
+topic read f1/+/telemetry
+topic read f1/+/event
+topic read f1/sim/status
+topic write f1/+/cmd
+
+# Monitor (demonstração com mosquitto_sub e healthcheck): somente leitura
+user monitor
+topic read f1/#
+topic read $SYS/#

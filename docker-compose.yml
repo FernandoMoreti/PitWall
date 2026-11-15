@@ -1,0 +1,220 @@
+# PITWALL — tudo sobe com:  python scripts/gen_secrets.py && docker compose up --build
+#
+# Só o frontend é publicado para a aplicação (http://localhost:8080). As UIs de
+# administração (RabbitMQ, InfluxDB, pgAdmin) ficam presas em 127.0.0.1.
+
+x-python: &python
+  build: { context: ., dockerfile: python.Dockerfile }
+  image: pitwall-python:latest
+  restart: unless-stopped
+  read_only: false
+  security_opt: ["no-new-privileges:true"]
+
+x-heartbeat: &heartbeat
+  test: ["CMD", "python", "-c", "import os,time,sys; sys.exit(0 if time.time()-os.path.getmtime('/tmp/heartbeat')<30 else 1)"]
+  interval: 10s
+  timeout: 5s
+  retries: 6
+  start_period: 30s
+
+x-rabbit-env: &rabbit-env
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_VHOST: pitwall
+
+services:
+  # ------------------------------------------------------------------ infraestrutura
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    restart: unless-stopped
+    environment:
+      MQTT_SIM_PASSWORD: ${MQTT_SIM_PASSWORD:?rode scripts/gen_secrets.py}
+      MQTT_GATEWAY_PASSWORD: ${MQTT_GATEWAY_PASSWORD}
+      MQTT_MONITOR_PASSWORD: ${MQTT_MONITOR_PASSWORD}
+    command: >
+      sh -c 'mosquitto_passwd -c -b /mosquitto/data/passwd sim "$$MQTT_SIM_PASSWORD" &&
+             mosquitto_passwd -b /mosquitto/data/passwd gateway "$$MQTT_GATEWAY_PASSWORD" &&
+             mosquitto_passwd -b /mosquitto/data/passwd monitor "$$MQTT_MONITOR_PASSWORD" &&
+             chown mosquitto:mosquitto /mosquitto/data/passwd && chmod 0700 /mosquitto/data/passwd &&
+             exec mosquitto -c /mosquitto/config/mosquitto.conf'
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infra/mosquitto/acl:/mosquitto/config/acl:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -u monitor -P \"$$MQTT_MONITOR_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 3"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    hostname: pitwall-rabbit
+    volumes:
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./infra/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  influxdb:
+    image: influxdb:2.7
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_USER}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET}
+      DOCKER_INFLUXDB_INIT_RETENTION: 7d
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN}
+    volumes:
+      - influx-data:/var/lib/influxdb2
+    ports:
+      - "127.0.0.1:8086:8086"
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  pgadmin:
+    image: dpage/pgadmin4:8.14
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "127.0.0.1:5050:80"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # ------------------------------------------------------------------ aplicação
+  simulator:
+    <<: *python
+    command: ["python", "simulator/main.py"]
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_SIM_USER: sim
+      MQTT_SIM_PASSWORD: ${MQTT_SIM_PASSWORD}
+      SIM_CONSUMABLE_MULT: ${SIM_CONSUMABLE_MULT:-3}
+      SIM_TIME_SCALE: ${SIM_TIME_SCALE:-1}
+      SIM_SEED: ${SIM_SEED:-42}
+    depends_on:
+      mosquitto: { condition: service_healthy }
+      gateway: { condition: service_healthy }
+    healthcheck: *heartbeat
+
+  gateway:
+    <<: *python
+    command: ["python", "gateway/main.py"]
+    environment:
+      <<: *rabbit-env
+      MQTT_HOST: mosquitto
+      MQTT_GATEWAY_USER: gateway
+      MQTT_GATEWAY_PASSWORD: ${MQTT_GATEWAY_PASSWORD}
+      RABBITMQ_GATEWAY_USER: ${RABBITMQ_GATEWAY_USER}
+      RABBITMQ_GATEWAY_PASSWORD: ${RABBITMQ_GATEWAY_PASSWORD}
+    depends_on:
+      mosquitto: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck: *heartbeat
+
+  influx-writer:
+    <<: *python
+    command: ["python", "workers/influx_writer.py"]
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_WRITER_USER: ${RABBITMQ_WRITER_USER}
+      RABBITMQ_WRITER_PASSWORD: ${RABBITMQ_WRITER_PASSWORD}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      influxdb: { condition: service_healthy }
+    healthcheck: *heartbeat
+
+  rules-engine:
+    <<: *python
+    command: ["python", "workers/rules_engine.py"]
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_RULES_USER: ${RABBITMQ_RULES_USER}
+      RABBITMQ_RULES_PASSWORD: ${RABBITMQ_RULES_PASSWORD}
+      POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    healthcheck: *heartbeat
+
+  api:
+    <<: *python
+    working_dir: /app/api
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_API_USER: ${RABBITMQ_API_USER}
+      RABBITMQ_API_PASSWORD: ${RABBITMQ_API_PASSWORD}
+      RABBITMQ_MGMT_URL: http://rabbitmq:15672
+      POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      influxdb: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  frontend:
+    build: { context: ./frontend }
+    image: pitwall-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ------------------------------------------------------------------ etapa 2 (IA + LLM local)
+  # inference / data-lab / trainer: consumidores de q.inference, q.jobs.generate e q.jobs.train
+  # ollama: modelo local (ex.: llama3.2:3b) pré-carregado na subida
+
+volumes:
+  rabbitmq-data:
+  influx-data:
+  pg-data:

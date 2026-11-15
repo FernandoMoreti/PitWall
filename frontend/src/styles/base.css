@@ -1,0 +1,110 @@
+/* PITWALL — linguagem visual derivada do design system Kage (referência do projeto):
+   tinta quase preta, osso, vermelhão como acento, linhas finas, caixa alta com
+   tracking largo, vidro fosco e easings longos. */
+:root {
+  --ink: #05070a;
+  --ink-2: #0a0e12;
+  --bone: #dfe7e0;
+  --bone-dim: #aab4ad;
+  --muted: #78837c;
+  --line: rgba(223, 231, 224, .13);
+  --line-soft: rgba(223, 231, 224, .07);
+  --vermilion: #e0231c;
+  --gold: #c9a24a;
+
+  /* estados (normal · atenção · crítico · sem dados) */
+  --ok: #4fd18b;
+  --warn: #f2b33d;
+  --crit: #ff3b30;
+  --nodata: #5b6560;
+  --cool: #4aa8ff;
+
+  --glass: rgba(6, 9, 12, .62);
+  --glass-strong: rgba(6, 9, 12, .82);
+  --blur: blur(14px) saturate(1.1);
+
+  --pad: clamp(14px, 2.2vw, 36px);
+  --nav-h: 60px;
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  background: var(--ink);
+  color: var(--bone);
+  font: 400 14px/1.45 'Onest', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; }
+::selection { background: var(--vermilion); color: var(--bone); }
+
+.num { font-variant-numeric: tabular-nums; }
+
+.eyebrow {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 10px; font-weight: 500; letter-spacing: .24em; text-transform: uppercase; color: var(--muted);
+}
+.eyebrow::before { content: ''; width: 18px; height: 1px; background: var(--vermilion); }
+
+.label {
+  font-size: 9.5px; font-weight: 500; letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
+}
+
+/* painel de vidro fosco */
+.glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+/* botões */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 30px; padding: 0 12px; border: 1px solid var(--line); border-radius: 2px;
+  background: rgba(223, 231, 224, .03); cursor: pointer;
+  font-size: 10px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase; color: var(--bone-dim);
+  transition: border-color .3s var(--ease), color .3s var(--ease), background .3s var(--ease);
+}
+.btn:hover { border-color: rgba(223, 231, 224, .35); color: var(--bone); }
+.btn.is-on { border-color: var(--vermilion); color: var(--bone); background: rgba(224, 35, 28, .16); }
+.btn.danger { border-color: rgba(255, 59, 48, .4); color: #ffb3ad; }
+.btn.danger:hover { background: rgba(255, 59, 48, .14); }
+.btn:disabled { opacity: .4; pointer-events: none; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* pílula de estado */
+.state { display: inline-flex; align-items: center; gap: 6px; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; }
+.state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+.state.normal { color: var(--ok); }
+.state.attention { color: var(--warn); }
+.state.critical { color: var(--crit); }
+.state.nodata { color: var(--nodata); }
+
+/* entrada em cascata (o --fg-delay do Kage) */
+.rise { opacity: 0; transform: translateY(14px); animation: rise .9s var(--ease-out) forwards; animation-delay: var(--d, 0ms); }
+@keyframes rise { to { opacity: 1; transform: none; } }
+
+.scroll { overflow: auto; scrollbar-width: thin; scrollbar-color: rgba(223, 231, 224, .15) transparent; }
+
+table.grid { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.grid th { text-align: left; font-size: 9.5px; font-weight: 500; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--ink-2); }
+table.grid td { padding: 7px 10px; border-bottom: 1px solid var(--line-soft); }
+table.grid tr:hover td { background: rgba(223, 231, 224, .025); }
+
+input, select {
+  background: var(--ink-2); border: 1px solid var(--line); color: var(--bone); border-radius: 2px;
+  height: 30px; padding: 0 8px; font: inherit; font-size: 12.5px;
+}
+input:focus, select:focus { outline: none; border-color: rgba(223, 231, 224, .4); }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise { animation: none; opacity: 1; transform: none; }
+}
