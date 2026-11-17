@@ -4,7 +4,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import Spark from './Spark.vue'
 import { ui } from '../stores/telemetry'
-import { fieldStatus, partStatus, puHealth, tyreHealth, STATUS_COLOR } from '../stores/insights'
+import { fieldStatus, partStatus, prediction, puHealth, tyreHealth, STATUS_COLOR } from '../stores/insights'
 import { sendCommand, type CommandAction } from '../services/api'
 
 const props = defineProps<{ car: string; part: string; label: string }>()
@@ -42,7 +42,9 @@ const health = computed(() => {
   return null
 })
 const status = computed(() => partStatus(t.value, props.part))
+const ai = computed(() => (props.part === 'pu' ? prediction(props.car) : null))
 const alerts = computed(() => (ui.alerts[props.car] || []).filter((a) => fields.value.includes(a.field)
+  || (a.field === 'pu_health' && props.part === 'pu')
   || (a.field.startsWith('tyre_') && props.part.startsWith('tyre_')) || (a.field === 'engine_temp' && props.part === 'radiator')))
 
 const busy = ref(false)
@@ -65,7 +67,11 @@ async function cmd(action: CommandAction, value: unknown = null) {
 
     <div class="st">
       <span class="state" :class="status">{{ { normal: 'Normal', attention: 'Atenção', critical: 'Crítico', nodata: 'Sem dados' }[status] }}</span>
-      <span v-if="health != null" class="hl num">Saúde {{ health }}/100 <small>(heurística · IA na etapa 2)</small></span>
+      <span v-if="health != null" class="hl num">Saúde {{ health }}/100
+        <small v-if="ai">· vida útil {{ ai.rul_h.toFixed(1) }} h · IA v{{ ai.model_version }}</small>
+        <small v-else-if="part === 'pu'">(heurística · treine o modelo)</small>
+        <small v-else>(desgaste)</small>
+      </span>
     </div>
 
     <ul class="vals">

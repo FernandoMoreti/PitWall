@@ -8,7 +8,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { GarageScene } from '../three/GarageScene'
 import { ui, WHEELS, type Telemetry } from '../stores/telemetry'
-import { COMPOUND_COLOR, TEAM_COLOR, carStatus, fieldStatus, fmtLap, partStatus, puHealth, strategy, tyreHealth, STATUS_COLOR } from '../stores/insights'
+import { COMPOUND_COLOR, TEAM_COLOR, carStatus, fieldStatus, fmtLap, partStatus, prediction, puHealth, strategy, tyreHealth, STATUS_COLOR } from '../stores/insights'
 import NoData from '../components/NoData.vue'
 import Spark from '../components/Spark.vue'
 import Feed from '../components/Feed.vue'
@@ -211,7 +211,7 @@ const rpmPct = computed(() => Math.min(100, ((t.value?.rpm ?? 0) / 12500) * 100)
         </div>
         <Spark :car="carId" field="engine_temp" unit="°C" :height="46" />
         <div class="health">
-          <span class="label">Saúde (heurística)</span>
+          <span class="label">Saúde {{ prediction(t.car_id) ? `IA · vida útil ${prediction(t.car_id)!.rul_h.toFixed(1)} h` : '(heurística)' }}</span>
           <div class="bar"><i :style="{ width: puHealth(t) + '%', background: puHealth(t) > 70 ? 'var(--ok)' : puHealth(t) > 40 ? 'var(--warn)' : 'var(--crit)' }"></i></div>
           <b class="num">{{ puHealth(t) }}</b>
         </div>

@@ -185,6 +185,11 @@ services:
       INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
       INFLUXDB_ORG: ${INFLUXDB_ORG}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+    volumes:
+      - lab-data:/data/lab:ro
+      - models:/data/models:ro
     depends_on:
       rabbitmq: { condition: service_healthy }
       postgres: { condition: service_healthy }
@@ -210,11 +215,68 @@ services:
       timeout: 5s
       retries: 5
 
-  # ------------------------------------------------------------------ etapa 2 (IA + LLM local)
-  # inference / data-lab / trainer: consumidores de q.inference, q.jobs.generate e q.jobs.train
-  # ollama: modelo local (ex.: llama3.2:3b) pré-carregado na subida
+  # ------------------------------------------------------------------ IA + LLM local
+  ml-worker:                      # jobs demorados: q.jobs.generate (dados sintéticos) e q.jobs.train (treino)
+    <<: *python
+    command: ["python", "workers/ml_worker.py"]
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_ML_USER: ${RABBITMQ_ML_USER}
+      RABBITMQ_ML_PASSWORD: ${RABBITMQ_ML_PASSWORD}
+      POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+    volumes:
+      - lab-data:/data/lab
+      - models:/data/models
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      influxdb: { condition: service_healthy }
+    healthcheck: *heartbeat
+
+  inference:                      # q.inference -> previsões (prediction.<carro>) e alertas preditivos
+    <<: *python
+    command: ["python", "workers/inference.py"]
+    environment:
+      <<: *rabbit-env
+      RABBITMQ_INFER_USER: ${RABBITMQ_INFER_USER}
+      RABBITMQ_INFER_PASSWORD: ${RABBITMQ_INFER_PASSWORD}
+      POSTGRES_DSN: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - models:/data/models:ro
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    healthcheck: *heartbeat
+
+  ollama:                         # LLM local e gratuito (CPU), sem porta publicada; baixa e pré-carrega o modelo
+    image: ollama/ollama:0.5.7
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve & pid=$$!
+        sleep 4
+        ollama pull "$$OLLAMA_MODEL" && ollama run "$$OLLAMA_MODEL" "ok" > /dev/null && touch /tmp/ready
+        wait $$pid
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 80
+      start_period: 30s
 
 volumes:
   rabbitmq-data:
   influx-data:
   pg-data:
+  lab-data:
+  models:
+  ollama-data:

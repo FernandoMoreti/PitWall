@@ -54,8 +54,8 @@ class Engine:
         self.rules: list[dict] = []
         self.state: dict[tuple[str, int], RuleState] = {}
         self.loaded_at = 0.0
-        # o estado de histerese vive em memória: ao reiniciar, encerra os alertas que ficaram abertos
-        closed = self.db.execute("update alerts set cleared_at = now() where cleared_at is null returning id").fetchall()
+        # o estado de histerese vive em memória: ao reiniciar, encerra os alertas de regra que ficaram abertos
+        closed = self.db.execute("update alerts set cleared_at = now() where cleared_at is null and rule_id is not null returning id").fetchall()
         if closed:
             log.info("%d alertas antigos encerrados na inicialização", len(closed))
 

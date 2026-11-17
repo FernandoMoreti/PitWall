@@ -4,7 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { Engine } from './Engine'
 import { CarModel } from './CarModel'
 import { Track } from './Track'
-import { isStale, live, type Telemetry } from '../stores/telemetry'
+import { isStale, live, ui, type Telemetry } from '../stores/telemetry'
 import { TEAM_COLOR } from '../stores/insights'
 import type { TrackData } from '../services/api'
 
@@ -170,6 +170,18 @@ export class RaceScene {
         this.halo.position.copy(root.position).setY(root.position.y + 0.06)
         ;(this.halo.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(time * 4) * 0.25
       }
+    }
+
+    if (!stale) {
+      // ambiente: garagens acesas para quem está no pit; bandeira amarela nos postes
+      const ids = [...live.cars.keys()].sort()
+      const pit = ids.flatMap((id, i) => {
+        const t = live.cars.get(id)!.cur
+        return t.in_pit || t.status === 'PIT' ? [{ garage: (i * 2) % 12, color: TEAM_COLOR[t.team] ?? '#dfe7e0' }] : []
+      })
+      const yellow = ids.some((id) => live.cars.get(id)!.cur.status === 'DNF')
+        || Object.values(ui.alerts).some((list) => list.some((a) => a.severity === 'critical'))
+      this.track.updateEnvironment(pit, yellow, time)
     }
 
     this.updateCamera(dt)

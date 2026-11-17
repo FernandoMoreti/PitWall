@@ -1,6 +1,6 @@
 /** WebSocket com ticket curto de uso único (o token nunca vai na URL) e reconexão. */
 import { api } from './api'
-import { ingest, live, pushAlert, pushFeed, type Telemetry } from '../stores/telemetry'
+import { ingest, live, pushAlert, pushFeed, pushPrediction, type Prediction, type Telemetry } from '../stores/telemetry'
 
 let socket: WebSocket | null = null
 let retry = 0
@@ -17,6 +17,10 @@ function handle(data: any): void {
   switch (data.t) {
     case 'hello':
       live.simOnline = !!data.sim?.online
+      for (const p of (data.predictions ?? []) as Prediction[]) pushPrediction(p)
+      break
+    case 'prediction':
+      pushPrediction({ ...data.msg.payload, car_id: data.msg.device, ts: data.msg.ts })
       break
     case 'telemetry':
       ingest(data.items as Telemetry[])

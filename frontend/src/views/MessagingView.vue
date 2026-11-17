@@ -13,11 +13,11 @@ const depth: Record<string, number[]> = {}
 const labels: string[] = []
 let chart: Chart | null = null
 let timer = 0
-const COLORS: Record<string, string> = { 'q.influx': '#e0231c', 'q.rules': '#c9a24a', 'q.ws': '#29c4c9', 'q.commands': '#4fd18b', 'q.dead': '#a78bfa', 'q.inference': '#5b6560' }
+const COLORS: Record<string, string> = { 'q.influx': '#e0231c', 'q.rules': '#c9a24a', 'q.ws': '#29c4c9', 'q.commands': '#4fd18b', 'q.dead': '#a78bfa', 'q.inference': '#f2b33d', 'q.jobs.generate': '#4aa8ff', 'q.jobs.train': '#dfe7e0' }
 const ROLE: Record<string, string> = {
   'q.influx': 'Gravação no InfluxDB', 'q.rules': 'Motor de regras (atuador automático)', 'q.ws': 'Entrega ao WebSocket',
-  'q.commands': 'Comandos → gateway → MQTT', 'q.inference': 'Inferência da IA (etapa 2)', 'q.jobs.generate': 'Job: geração de dados (etapa 2)',
-  'q.jobs.train': 'Job: treino (etapa 2)', 'q.dead': 'DLQ — mensagens mortas',
+  'q.commands': 'Comandos → gateway → MQTT', 'q.inference': 'Inferência da IA (saúde e vida útil)', 'q.jobs.generate': 'Job: geração de dados sintéticos',
+  'q.jobs.train': 'Job: treino dos modelos', 'q.dead': 'DLQ — mensagens mortas',
 }
 
 async function load() {
@@ -81,7 +81,7 @@ const maxMsgs = () => Math.max(1, ...(data.value?.queues ?? []).map((q: any) => 
         <table class="grid" v-if="data">
           <thead><tr><th>Fila</th><th>Papel</th><th>Mensagens</th><th>Prontas</th><th>Sem ack</th><th>Pub/s</th><th>Entrega/s</th><th>Consumidores</th></tr></thead>
           <tbody>
-            <tr v-for="q in data.queues" :key="q.name" :class="{ warn: q.consumers === 0 && q.messages > 0 && q.name !== 'q.inference' }">
+            <tr v-for="q in data.queues" :key="q.name" :class="{ warn: q.consumers === 0 && q.messages > 0 }">
               <td class="num"><i class="sw" :style="{ background: COLORS[q.name] ?? '#5b6560' }"></i>{{ q.name }}</td>
               <td class="role">{{ ROLE[q.name] }}</td>
               <td class="num"><div class="mbar"><i :style="{ width: (q.messages / maxMsgs()) * 100 + '%', background: COLORS[q.name] ?? '#5b6560' }"></i></div>{{ q.messages }}</td>

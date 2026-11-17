@@ -61,6 +61,19 @@ create table if not exists audit_log (
 );
 create index if not exists audit_ts_idx on audit_log (ts desc);
 
+-- Jobs demorados da IA (geração de dados e treino): a API cria, o ml-worker atualiza o progresso.
+create table if not exists jobs (
+    id          bigserial primary key,
+    kind        text not null check (kind in ('generate', 'train')),
+    status      text not null default 'queued' check (status in ('queued', 'running', 'done', 'error')),
+    progress    double precision not null default 0,
+    note        text,
+    params      jsonb not null default '{}'::jsonb,
+    result      jsonb,
+    created_at  timestamptz not null default now(),
+    finished_at timestamptz
+);
+
 -- Etapa 2 (JWT + papéis). Criada agora para o modelo de dados ficar completo.
 create table if not exists users (
     id            serial primary key,

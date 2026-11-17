@@ -48,8 +48,9 @@ A ordem segue o roteiro de demonstração do documento do trabalho.
 | `on_message` → InfluxDB | Serviço `influx-writer` com lotes e DLQ |
 | Polling em `/datas` | WebSocket com ticket de uso único |
 | Só InfluxDB | InfluxDB + PostgreSQL |
-| Rodava manualmente | 11 containers no Docker Compose |
+| Rodava manualmente | 14 containers no Docker Compose |
 | Gráficos 2D | Gráficos 2D + duas cenas 3D |
+| Sem IA | Dados sintéticos, 2 regressões ao vivo e LLM local |
 
 **Fala:** "Nada foi jogado fora: cada peça do 1º bimestre virou um serviço."
 
@@ -64,7 +65,8 @@ A ordem segue o roteiro de demonstração do documento do trabalho.
 - **Mensageria:** RabbitMQ (AMQP)
 - **Dados:** PostgreSQL e InfluxDB 2.7
 - **Infra:** Docker + Docker Compose, nginx sem root
-- **IA (etapa 2):** scikit-learn + Ollama local
+- **IA:** scikit-learn (RandomForest) + numpy
+- **LLM local:** Ollama com `qwen2.5:1.5b` (gratuito, roda em CPU)
 
 **Visual:** grade de logos por camada.
 
@@ -79,7 +81,10 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
                      │                              ├─ q.rules    → rules-engine  → PostgreSQL
                      └──── MQTT ◀── Gateway ◀───────├─ q.commands (volta ao carro)
                                                     ├─ q.ws       → FastAPI → WebSocket → Vue + Three.js
+                                                    ├─ q.inference → inference → prediction.<id> + alertas
+                                                    ├─ q.jobs.*   → ml-worker (gera dados e treina)
                                                     └─ f1.dlx     → q.dead (DLQ)
+FastAPI ─▶ Ollama (LLM local) para o Assistente
 ```
 - **Todo dado passa pelo RabbitMQ.**
 - O Mosquitto fica na **borda** (dispositivo ⇄ aplicação); o RabbitMQ é o **barramento interno**.
@@ -204,7 +209,8 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 | Regras editáveis | Tags `car_id`, `team` e `tyre_compound` |
 | Alertas (abertos e fechados) | Measurement `events` (pit, DNF, comandos) |
 | Auditoria de comandos | Gravação em lotes, com falha indo para a DLQ |
-| Usuários (etapa 2) | Consulta do histórico em Flux |
+| Jobs da IA (progresso) | Bucket `lab`: amostra dos dados sintéticos |
+| Usuários (para o login) | Consulta do histórico em Flux |
 
 - Página **Dispositivos**: CRUD com regras, alertas e auditoria.
 - Página **Histórico**: consulta por carro, variável e janela, com Chart.js.
@@ -233,6 +239,7 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 - Estratégia ao vivo: voltas até o cliff do pneu, combustível para N voltas e janela de pit.
 - Três câmeras: aérea, perseguição e TV (teclas 1, 2 e 3).
 - Árvores, postes e garagens feitos com **InstancedMesh**.
+- **Ambiente reagindo a dados:** a garagem acende na cor da equipe quando o carro entra no pit; os postes ficam âmbar e piscam (bandeira amarela) com carro quebrado ou alerta crítico.
 
 **Visual:** GIF da câmera de TV acompanhando o carro.
 
@@ -243,7 +250,7 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 **Conteúdo**
 - Carro procedural grande no centro. Arraste para girar, use a roda do mouse para zoom e passe o mouse sobre as peças para ver o valor ao vivo.
 - **Clique numa peça** abre um painel com a última leitura, o gráfico de 60 s, a saúde e os botões de comando.
-- Cores por estado: normal, atenção, crítico e sem dados. Elas vêm da faixa cadastrada do sensor.
+- Cores por estado: normal, atenção, crítico e sem dados. Elas vêm da faixa cadastrada do sensor **e da saúde prevista pela IA**.
 - Cards ligados às peças por linhas-guia que seguem a projeção 3D → 2D a cada quadro, sem pontas soltas.
 - Atuadores animados:
   - as aletas do radiador abrem e a luz traseira pisca no resfriamento;
@@ -260,7 +267,7 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 **Conteúdo**
 1. **IoT → Web:** simulador → MQTT → gateway → RabbitMQ → influx-writer e API → WebSocket → 3D. ✅
 2. **Web → IoT:** botão BOX → API → RabbitMQ → gateway → MQTT → simulador → o carro entra no pit e o desgaste volta a 0. ✅
-3. **IA:** laboratório → treino → inferência → previsões pelo RabbitMQ → Insights e 3D. *(etapa 2)*
+3. **IA:** laboratório → treino → inferência → previsões pelo RabbitMQ → Insights e 3D. ✅
 
 **Visual:** três setas coloridas sobre o diagrama do slide 5.
 
@@ -274,8 +281,9 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 - WebSocket com ticket de uso único.
 - Containers sem root; **só a porta 8080** é publicada.
 - UIs de administração (RabbitMQ, InfluxDB, pgAdmin) presas em **127.0.0.1**, com os links na página Sistemas.
-- Auditoria de comandos no PostgreSQL.
-- *(etapa 2)* JWT com 3 papéis (visualizador, operador, administrador), bcrypt e limite de tentativas de login.
+- Auditoria no PostgreSQL de comandos, jobs da IA e perguntas ao assistente.
+- LLM sem acesso aos bancos; a saída é tratada como texto não confiável (Markdown sem HTML) e há limite de 6 perguntas por minuto.
+- Ainda não implementado: login JWT com 3 papéis, bcrypt e limite de tentativas.
 
 ---
 
@@ -283,9 +291,10 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 
 **Conteúdo**
 - `python scripts/gen_secrets.py` e depois `docker compose up --build`: **um comando** sobe tudo.
-- 11 serviços:
+- 14 serviços:
   - infra: mosquitto, rabbitmq, influxdb, postgres e pgadmin;
-  - aplicação: simulator, gateway, influx-writer, rules-engine, api e frontend.
+  - aplicação: simulator, gateway, influx-writer, rules-engine, api e frontend;
+  - IA: ml-worker, inference e ollama (baixa e pré-carrega o modelo na subida).
 - **Healthcheck** em todos (inclusive os workers, por arquivo de heartbeat) e `depends_on: service_healthy` para garantir a ordem de subida.
 - Uma imagem Python compartilhada (`python.Dockerfile`) e o frontend com build do Vite servido pelo nginx, que faz proxy de `/api` e `/ws`.
 
@@ -293,23 +302,69 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 
 ---
 
-## 20. Inteligência artificial (etapa 2)
+## 20. Laboratório de Dados: dados sintéticos massivos
 
 **Conteúdo**
-- **Laboratório de Dados:** gerar mais de 1 milhão de leituras sintéticas com numpy em blocos.
-  - Configurável: equipamentos, dias, % de falhas e modos de falha, ruído, faltantes, outliers e semente.
-- **2 modelos de regressão** (scikit-learn):
-  - **vida útil restante (RUL)** da PU;
-  - **índice de saúde** de 0 a 100.
-  - Divisão por equipamento; MAE, RMSE e R²; comparação com uma base que prevê sempre a média.
-- **Inferência ao vivo** consumindo `q.inference`, publicando previsões e alertas com histerese.
-- **Assistente com LLM local** (Ollama, `llama3.2:3b` em CPU), com o resumo dos dados no prompt e resposta em streaming.
+- Por que sintético? Uma PU real leva meses para falhar; simulamos a vida inteira de 100 PUs.
+- Configurável pela tela: equipamentos, dias, minutos entre leituras, % que falha, modos de falha (rolamento, superaquecimento, vazamento de óleo, deriva de sensor), ruído, % faltantes, % outliers e semente.
+- **Mesma física do simulador ao vivo**: o desgaste acelera sozinho (`dw/dt = k·(0,4 + w)`) e mexe em vibração, óleo e temperatura.
+- Qualidade: ruído, uma variação própria de cada máquina (sobreposição entre saudáveis e doentes) e ciclo diário e sazonal.
+- **≈ 1,74 milhão de leituras em ~1 s** (numpy em blocos), com teto de 5 milhões.
+- Roda em segundo plano: tela → API → `q.jobs.generate` → ml-worker, com o progresso ao vivo. Uma amostra vai para o bucket `lab` do InfluxDB.
+- Rótulos de verdade (saúde e horas até falhar) **só no dataset**.
 
-**Fala:** "A infraestrutura (filas, tabela de usuários, menu) já está pronta para receber a IA."
+**Visual:** print do Laboratório com a barra de progresso.
 
 ---
 
-## 21. Desafios e decisões técnicas
+## 21. Treino: 2 modelos de regressão
+
+**Conteúdo**
+- Algoritmo simples: `RandomForestRegressor` (scikit-learn), 60 árvores.
+- Features: média, desvio e máximo das **últimas 30 leituras** (só o passado), calculadas por um único código no treino e na inferência.
+- Divisão **por equipamento**: 70 PUs no treino, 15 na validação e 15 no teste.
+
+| Modelo | MAE | R² | Base (média) R² |
+|---|---|---|---|
+| Índice de saúde (0–100) | 2,3 | **0,98** | ≈ 0 |
+| Vida útil restante (h) | 19,7 h | **0,76** | ≈ 0 |
+
+- O atributo mais importante é a **vibração média**, o que faz sentido para desgaste de rolamento.
+- O treino roda em segundo plano (`q.jobs.train`) e o modelo novo entra em uso **sem reiniciar** o serviço.
+
+**Visual:** print da página Treino (tabela, gráfico previsto × real, importância).
+
+**Fala:** "O modelo só vale se vencer a base que chuta sempre a média, e os dois vencem com folga."
+
+---
+
+## 22. Insights em tempo real
+
+**Conteúdo**
+- O serviço `inference` consome `q.inference`, aplica os 2 modelos a cada segundo por carro e publica `prediction.<carro>` de volta no RabbitMQ.
+- Alerta preditivo com **histerese**: 3 previsões seguidas abaixo de 50 disparam, 10 acima de 60 limpam. O alerta é gravado no PostgreSQL.
+- Página **Insights**: saúde, vida útil, tendência e alertas por carro.
+- As mesmas previsões pintam a PU na Garagem e na Corrida.
+- Demonstração: falha de rolamento no PW16, com a saúde caindo de 84 a 0 em cerca de 3,5 min, o alerta preditivo e o DNF.
+
+**Visual:** GIF do card do PW16 ficando vermelho.
+
+---
+
+## 23. Assistente com LLM local
+
+**Conteúdo**
+- **Ollama** no Docker Compose com o modelo gratuito **`qwen2.5:1.5b`** (cerca de 1 GB, roda em CPU, sem chave e sem nuvem).
+- O modelo é baixado e **pré-carregado** quando o Compose sobe.
+- O backend monta um **resumo pronto** (leituras, saúde, vida útil, alertas, métricas e arquitetura) e envia com a pergunta. O LLM nunca acessa os bancos.
+- Resposta em **streaming**, palavra a palavra.
+- Segurança: Markdown renderizado sem HTML, limite de perguntas por minuto e cada pergunta registrada na auditoria.
+
+**Visual:** print do chat respondendo "qual carro está com a pior saúde?".
+
+---
+
+## 24. Desafios e decisões técnicas
 
 **Conteúdo**
 - **Física da pista:** a curva mínima saía a 183 km/h; foi corrigida com um modelo de aderência que depende da velocidade.
@@ -317,10 +372,12 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 - **Alertas órfãos** depois de reiniciar o rules-engine: agora os alertas abertos são fechados na subida.
 - **Desempenho 3D:** store não reativo, InstancedMesh e bloom calibrado.
 - **Separação MQTT × AMQP:** cada broker com um papel claro.
+- **Vida útil difícil de prever:** a primeira versão tinha R² 0,18. Usar no laboratório a mesma lei de desgaste do simulador levou o R² a 0,76.
+- **Jobs longos × RabbitMQ:** o treino roda numa thread para o worker continuar mandando heartbeat ao broker.
 
 ---
 
-## 22. Roteiro da demonstração ao vivo
+## 25. Roteiro da demonstração ao vivo
 
 1. `docker compose up` com os containers saudáveis
 2. MQTT ao vivo com `mosquitto_sub` (e a recusa sem senha)
@@ -330,15 +387,19 @@ Simulador ─MQTT─▶ Mosquitto ─▶ Gateway ─AMQP─▶ RabbitMQ (exchang
 6. Corrida ao vivo; parar o simulador mostra "SEM DADOS"
 7. Regra automática: PUSH → motor > 118 °C → resfriamento liga
 8. Web → IoT: BOX com troca de composto
-9. Falha injetada na PU: vibração, cor e alertas mudando
+9. Laboratório: gerar cerca de 1,7 milhão de leituras sintéticas
+10. Treino: métricas contra a base, previsto × real e importância
+11. Falha injetada na PU: saúde, vida útil e alerta mudando no Insights e no 3D
+12. Assistente: perguntar sobre a falha ao LLM local
 
 ---
 
-## 23. Encerramento
+## 26. Encerramento
 
 **Conteúdo**
 - O pipeline IoT do 1º bimestre virou uma plataforma AIoT com mensageria, dois bancos, tempo real e gêmeo digital 3D.
-- Próximos passos: IA preditiva, LLM local e login com papéis.
+- A IA prevê a quebra da Power Unit antes de ela acontecer, e o LLM local explica o que fazer.
+- Próximos passos: login com papéis (JWT) e repositório no GitHub.
 - Perguntas?
 
 **Visual:** a Garagem com o carro girando lentamente.

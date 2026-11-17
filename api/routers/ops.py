@@ -94,6 +94,11 @@ def system():
     checks["rabbitmq"] = hub.conn is not None and not hub.conn.is_closed
     last = max((c.get("ts", 0) for c in hub.latest.values()), default=0)
     checks["simulator"] = hub.sim_status.get("online", False) and time.time() - last < 3
+    checks["inference"] = any(time.time() - p.get("ts", 0) < 5 for p in hub.predictions.values())
+    try:
+        checks["ollama"] = httpx.get(env("OLLAMA_URL", "http://ollama:11434") + "/api/tags", timeout=2).status_code == 200
+    except httpx.HTTPError:
+        checks["ollama"] = False
     return {
         "checks": checks,
         "last_telemetry_age_s": round(time.time() - last, 1) if last else None,

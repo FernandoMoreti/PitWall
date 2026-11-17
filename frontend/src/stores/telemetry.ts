@@ -30,6 +30,9 @@ export interface AlertMsg {
   severity: 'info' | 'warning' | 'critical'; message: string; value: number; ts: number
 }
 
+/** Previsão da IA (serviço de inferência → RabbitMQ → WebSocket). */
+export interface Prediction { car_id: string; ts: number; health: number; rul_h: number; trend_per_min: number; model_version: number }
+
 export interface FeedItem { id: string; ts: number; car_id: string; kind: string; text: string; level: 'info' | 'warn' | 'crit' }
 
 const HISTORY = 600            // ~60 s a 10 Hz
@@ -51,6 +54,7 @@ export const live = {
   connected: false,
   simOnline: false,
   trackLength: 5000,
+  predHist: new Map<string, number[]>(),     // saúde prevista (últimos ~3 min) para a tendência
 }
 
 export const ui = reactive({
@@ -63,6 +67,7 @@ export const ui = reactive({
   feed: [] as FeedItem[],
   selected: 'PW16',
   ranges: {} as Record<string, Device>,       // field -> faixa normal/crítica
+  predictions: {} as Record<string, Prediction>,
   tick: 0,
 })
 
@@ -97,6 +102,14 @@ export function ingest(items: Telemetry[]): void {
       if (c.trend.length > 240) c.trend.shift()
     }
   }
+}
+
+export function pushPrediction(p: Prediction): void {
+  ui.predictions[p.car_id] = p
+  const h = live.predHist.get(p.car_id) ?? []
+  h.push(p.health)
+  if (h.length > 180) h.shift()
+  live.predHist.set(p.car_id, h)
 }
 
 export function pushAlert(car: string, p: any, ts: number): void {

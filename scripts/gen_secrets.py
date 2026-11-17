@@ -66,6 +66,11 @@ def build_env() -> dict[str, str]:
         "RABBITMQ_RULES_PASSWORD": pw(),
         "RABBITMQ_API_USER": "pw_api",
         "RABBITMQ_API_PASSWORD": pw(),
+        "RABBITMQ_ML_USER": "pw_ml",
+        "RABBITMQ_ML_PASSWORD": pw(),
+        "RABBITMQ_INFER_USER": "pw_infer",
+        "RABBITMQ_INFER_PASSWORD": pw(),
+        "OLLAMA_MODEL": "qwen2.5:1.5b",
         "SIM_CONSUMABLE_MULT": "3",
         "SIM_TIME_SCALE": "1",
         "SIM_SEED": "42",
@@ -97,6 +102,8 @@ def build_definitions(e: dict[str, str]) -> dict:
             user(e["RABBITMQ_RULES_USER"], e["RABBITMQ_RULES_PASSWORD"], []),
             # monitoring: o backend lê a API de gerenciamento para a página Mensageria
             user(e["RABBITMQ_API_USER"], e["RABBITMQ_API_PASSWORD"], ["monitoring"]),
+            user(e["RABBITMQ_ML_USER"], e["RABBITMQ_ML_PASSWORD"], []),
+            user(e["RABBITMQ_INFER_USER"], e["RABBITMQ_INFER_PASSWORD"], []),
         ],
         "vhosts": [{"name": VHOST}],
         "permissions": [
@@ -105,6 +112,8 @@ def build_definitions(e: dict[str, str]) -> dict:
             perm(e["RABBITMQ_WRITER_USER"], "^$", "^$", r"^q\.influx$"),
             perm(e["RABBITMQ_RULES_USER"], "^$", "^f1$", r"^q\.rules$"),
             perm(e["RABBITMQ_API_USER"], "^$", "^f1$", r"^q\.(ws|dead)$"),
+            perm(e["RABBITMQ_ML_USER"], "^$", "^$", r"^q\.jobs\.(generate|train)$"),
+            perm(e["RABBITMQ_INFER_USER"], "^$", "^f1$", r"^q\.inference$"),
         ],
         "exchanges": [
             {"name": "f1", "vhost": VHOST, "type": "topic", "durable": True, "auto_delete": False,
@@ -126,6 +135,7 @@ def build_definitions(e: dict[str, str]) -> dict:
             bind("q.influx", "telemetry.#"), bind("q.influx", "event.#"),
             bind("q.rules", "telemetry.#"),
             bind("q.ws", "telemetry.#"), bind("q.ws", "event.#"), bind("q.ws", "alert.#"), bind("q.ws", "command.#"),
+            bind("q.ws", "prediction.#"),
             bind("q.commands", "command.#"),
             bind("q.inference", "telemetry.#"),
             bind("q.jobs.generate", "job.generate"), bind("q.jobs.train", "job.train"),
@@ -139,6 +149,12 @@ def main() -> None:
     if ENV.exists() and not force:
         print(f".env já existe — reaproveitando ({ENV}). Use --force para recriar.")
         e = read_env()
+        missing = {k: v for k, v in build_env().items() if k not in e}
+        if missing:                       # chaves novas (ex.: serviços de IA) entram sem trocar as antigas
+            with ENV.open("a", encoding="utf-8") as f:
+                f.write("".join(f"{k}={v}\n" for k, v in missing.items()))
+            e.update(missing)
+            print(f"Adicionadas ao .env: {', '.join(missing)}")
     else:
         e = build_env()
         ENV.write_text("# Gerado por scripts/gen_secrets.py — NÃO versionar\n"

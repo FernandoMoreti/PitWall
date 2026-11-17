@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import db
 from bus import hub
-from routers import ops, race, registry
+from routers import ai, ops, race, registry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [api] %(message)s")
 
@@ -42,6 +42,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http
 app.include_router(race.router)
 app.include_router(registry.router)
 app.include_router(ops.router)
+app.include_router(ai.router)
 
 
 @app.post("/api/ws/ticket", tags=["tempo real"])

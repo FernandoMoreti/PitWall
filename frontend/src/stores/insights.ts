@@ -1,9 +1,9 @@
 /**
  * Estado por cor, saúde e estratégia.
  *
- * Etapa 1: heurísticas transparentes (faixas do cadastro + tendências lineares).
- * Etapa 2: os mesmos campos passam a vir dos modelos de regressão (RUL e índice
- * de saúde) publicados pelo serviço de inferência.
+ * A saúde da PU vem do modelo de regressão (serviço de inferência). Enquanto
+ * não houver modelo treinado, usa uma heurística transparente como reserva.
+ * Estratégia (pneu/combustível): tendências lineares das leituras.
  */
 import { live, ui, WHEELS, type Telemetry } from './telemetry'
 
@@ -47,7 +47,7 @@ function alertStatus(car: string, fields: string[]): Status {
 }
 
 export const PART_FIELDS: Record<string, string[]> = {
-  pu: ['engine_temp', 'oil_temp', 'oil_pressure', 'pu_vibration', 'rpm'],
+  pu: ['engine_temp', 'oil_temp', 'oil_pressure', 'pu_vibration', 'rpm', 'pu_health'],
   fuel_cell: ['fuel_kg'],
   ers: ['ers_soc'],
   radiator: ['engine_temp'],
@@ -62,7 +62,21 @@ export function partStatus(t: Telemetry | undefined, part: string): Status {
   if (!t || ui.stale) return 'nodata'
   const fields = PART_FIELDS[part] || []
   if (!fields.length) return 'normal'
-  return worst('normal', ...fields.map((f) => fieldStatus(f, t[f])), alertStatus(t.car_id, fields))
+  const ai: Status = part === 'pu' ? aiStatus(t.car_id) : 'normal'
+  return worst('normal', ...fields.map((f) => fieldStatus(f, t[f])), alertStatus(t.car_id, fields), ai)
+}
+
+/** Previsão da IA ainda válida (o serviço publica 1 por segundo). */
+export function prediction(car: string) {
+  const p = ui.predictions[car]
+  return p && Date.now() / 1000 - p.ts < 15 ? p : null
+}
+
+/** Estado pela saúde prevista: < 50 crítico, < 70 atenção. */
+export function aiStatus(car: string): Status {
+  const p = prediction(car)
+  if (!p) return 'normal'
+  return p.health < 50 ? 'critical' : p.health < 70 ? 'attention' : 'normal'
 }
 
 export function carStatus(t: Telemetry | undefined): Status {
@@ -71,9 +85,15 @@ export function carStatus(t: Telemetry | undefined): Status {
   return worst('normal', ...Object.keys(PART_FIELDS).map((p) => partStatus(t, p)))
 }
 
-/** Índice de saúde da PU (0–100) — heurística até o modelo de regressão da etapa 2. */
+/** Índice de saúde da PU (0–100): previsão da IA; sem modelo, heurística de reserva. */
 export function puHealth(t: Telemetry): number {
   if (t.status === 'DNF') return 0
+  const p = prediction(t.car_id)
+  if (p) return Math.round(p.health)
+  return heuristicHealth(t)
+}
+
+function heuristicHealth(t: Telemetry): number {
   let h = 100
   h -= Math.max(0, t.pu_vibration - 1.15) * 48
   h -= Math.max(0, 5.0 - t.oil_pressure) * 26

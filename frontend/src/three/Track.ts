@@ -19,6 +19,11 @@ function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => 
 const ELEV = 0.4     // elevação suavizada para a cena
 const GROUND_Y = -4.6
 
+const GARAGE_IDLE = '#59605c'
+const LAMP_GREEN = '#ffe8c8'
+const LAMP_YELLOW = '#ffb000'
+const LAMP_YELLOW_DIM = '#6b4a00'
+
 export class Track {
   readonly group = new THREE.Group()
   readonly n: number
@@ -30,6 +35,11 @@ export class Track {
   private nrm: THREE.Vector3[] = []
 
   readonly d: TrackData
+  // elementos do ambiente que reagem aos dados ao vivo
+  private garageGlow!: THREE.InstancedMesh
+  private lamps!: THREE.InstancedMesh
+  private envKey = ''
+  private readonly c = new THREE.Color()
 
   constructor(d: TrackData) {
     this.d = d
@@ -47,6 +57,24 @@ export class Track {
 
   // ------------------------------------------------------------------ consulta
   /** Posição e direção num ponto s (m) com deslocamento lateral lat (m, + = esquerda). */
+  /**
+   * Ambiente vivo (só dados do WebSocket):
+   *  - a garagem de cada carro acende na cor da equipe quando ele está no pit;
+   *  - os postes ficam âmbar e piscam (bandeira amarela) com carro quebrado ou alerta crítico.
+   */
+  updateEnvironment(pit: { garage: number; color: string }[], yellow: boolean, time: number): void {
+    const blink = yellow && Math.sin(time * 6) > 0
+    const key = pit.map((p) => p.garage).join(',') + (yellow ? (blink ? 'Y' : 'y') : 'g')
+    if (key === this.envKey) return
+    this.envKey = key
+    for (let i = 0; i < this.garageGlow.count; i++) this.garageGlow.setColorAt(i, this.c.set(GARAGE_IDLE))
+    for (const p of pit) this.garageGlow.setColorAt(p.garage, this.c.set(p.color).multiplyScalar(2.2))
+    this.garageGlow.instanceColor!.needsUpdate = true
+    const lamp = yellow ? (blink ? LAMP_YELLOW : LAMP_YELLOW_DIM) : LAMP_GREEN
+    for (let i = 0; i < this.lamps.count; i++) this.lamps.setColorAt(i, this.c.set(lamp))
+    this.lamps.instanceColor!.needsUpdate = true
+  }
+
   at(s: number, lat: number, outPos: THREE.Vector3, outDir: THREE.Vector3): void {
     const L = this.length
     s = ((s % L) + L) % L
@@ -187,7 +215,8 @@ export class Track {
     this.ribbon(-W - 0.9, -W - 0.6, 0.045, white, pitFrom, pitTo)
     const boxGeo = new THREE.BoxGeometry(1, 1, 1)
     const garages = new THREE.InstancedMesh(boxGeo, new THREE.MeshStandardMaterial({ color: '#141a1f', roughness: 0.7 }), 12)
-    const garageGlow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: '#dfe7e0' }), 12)
+    const garageGlow = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: '#ffffff' }), 12)
+    this.garageGlow = garageGlow
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), dir = new THREE.Vector3()
     for (let i = 0; i < 12; i++) {
       this.at(-60 + i * 22, d.pit_offset - 9.5, pos, dir)
@@ -199,6 +228,7 @@ export class Track {
       m4.compose(pos.clone().setY(pos.y + 2.2), qq, new THREE.Vector3(16, 3.2, 1))
       garageGlow.setMatrixAt(i, m4)
     }
+    for (let i = 0; i < 12; i++) garageGlow.setColorAt(i, this.c.set(GARAGE_IDLE))
     this.group.add(garages, garageGlow)
 
     // muros com faixa luminosa
@@ -219,7 +249,9 @@ export class Track {
     const every = Math.round(110 / d.step_m)
     const count = Math.floor(this.n / every)
     const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.2, 14, 6), new THREE.MeshStandardMaterial({ color: '#1a1f24' }), count)
-    const lamps = new THREE.InstancedMesh(new THREE.BoxGeometry(2.2, 0.35, 0.8), new THREE.MeshBasicMaterial({ color: '#ffe8c8' }), count)
+    const lamps = new THREE.InstancedMesh(new THREE.BoxGeometry(2.2, 0.35, 0.8), new THREE.MeshBasicMaterial({ color: '#ffffff' }), count)
+    this.lamps = lamps
+    for (let i = 0; i < count; i++) lamps.setColorAt(i, this.c.set(LAMP_GREEN))
     for (let i = 0; i < count; i++) {
       this.at(i * every * d.step_m, W + 13, pos, dir)
       m4.makeTranslation(pos.x, pos.y + 7, pos.z)

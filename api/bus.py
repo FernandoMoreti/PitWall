@@ -1,6 +1,6 @@
 """Ponte RabbitMQ → WebSocket e publicação de comandos.
 
-* Consome q.ws (telemetria, eventos, alertas e comandos) e mantém o último
+* Consome q.ws (telemetria, eventos, alertas, comandos e previsões da IA) e mantém o último
   estado de cada carro.
 * A cada 100 ms envia aos navegadores um lote com os carros atualizados
   (eventos/alertas vão na hora). O 3D lê esse estado no loop de animação.
@@ -30,6 +30,7 @@ class Hub:
     def __init__(self) -> None:
         self.clients: set[WebSocket] = set()
         self.latest: dict[str, dict] = {}       # car_id -> {"ts":..., **payload}
+        self.predictions: dict[str, dict] = {}  # car_id -> última previsão da IA
         self.dirty: set[str] = set()
         self.sim_status: dict = {"online": False, "ts": 0}
         self.recent: deque = deque(maxlen=60)
@@ -93,7 +94,7 @@ class Hub:
         self.received += 1
         rk = message.routing_key or ""
         kind = msg["type"]
-        if kind != "telemetry" or self.received % 25 == 0:
+        if (kind not in ("telemetry", "prediction")) or self.received % 25 == 0:
             self.recent.appendleft({"rk": rk, "type": kind, "device": msg["device"], "ts": msg["ts"],
                                     "source": msg.get("source"), "size": len(message.body),
                                     "preview": json.dumps(msg["payload"])[:160]})
@@ -101,6 +102,8 @@ class Hub:
             self.latest[msg["device"]] = {"ts": msg["ts"], **msg["payload"]}
             self.dirty.add(msg["device"])
             return
+        if kind == "prediction":
+            self.predictions[msg["device"]] = {"ts": msg["ts"], "car_id": msg["device"], **msg["payload"]}
         if kind == "event" and msg["payload"].get("kind") == "sim_status":
             self.sim_status = {"online": bool(msg["payload"].get("online")), "ts": msg["ts"]}
         await self.broadcast({"t": kind, "msg": msg})
@@ -135,7 +138,8 @@ class Hub:
             self.clients.discard(ws)
 
     def snapshot(self) -> dict:
-        return {"t": "hello", "cars": list(self.latest.values()), "sim": self.sim_status, "server_ts": time.time()}
+        return {"t": "hello", "cars": list(self.latest.values()), "predictions": list(self.predictions.values()),
+                "sim": self.sim_status, "server_ts": time.time()}
 
 
 hub = Hub()

@@ -14,6 +14,12 @@ Q_INFLUX = "q.influx"
 Q_RULES = "q.rules"
 Q_WS = "q.ws"
 Q_COMMANDS = "q.commands"
+Q_INFERENCE = "q.inference"
+Q_JOB_GENERATE = "q.jobs.generate"
+Q_JOB_TRAIN = "q.jobs.train"
+
+RK_JOB_GENERATE = "job.generate"
+RK_JOB_TRAIN = "job.train"
 
 
 def rk_telemetry(team: str, car: str) -> str:
@@ -30,6 +36,10 @@ def rk_command(car: str) -> str:
 
 def rk_alert(car: str) -> str:
     return f"alert.{car}"
+
+
+def rk_prediction(car: str) -> str:
+    return f"prediction.{car}"
 
 
 def slug(text: str) -> str:

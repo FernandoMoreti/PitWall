@@ -1,4 +1,4 @@
-# Imagem única para os serviços Python (simulator, gateway, workers, api).
+# Imagem única para os serviços Python (simulator, gateway, workers, IA, api).
 # Cada serviço escolhe o seu comando no docker-compose.yml.
 FROM python:3.12-slim
 
@@ -14,5 +14,7 @@ COPY gateway ./gateway
 COPY workers ./workers
 COPY api ./api
 
-RUN useradd --create-home --uid 10001 pitwall
+# /data: volumes da IA (dataset e modelos) — criados aqui para herdarem o dono não-root
+RUN useradd --create-home --uid 10001 pitwall \
+ && mkdir -p /data/lab /data/models && chown -R pitwall /data
 USER pitwall
